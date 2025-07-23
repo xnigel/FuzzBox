@@ -28,14 +28,14 @@
 #     |  +---------     Crypto Function Updates                                  #
 #     +------------     Published Version (Major Change)                         #
 # _______________________________________________________________________________#
-#   0. Fuzzer was created in June 2025 - 00.00.01 - 00.04.01                     #
-#   1. Adding headers and checksum --- on going 2025.07.23 - v00.05.01           #
-#   2. Released the final version  --- on going 2025.07.23 - v01.00.00           #
+#   0. Fuzzer was created in June 2025 - 00.00.01 - 00.04.01                     #  
+#   1. Adding headers and checksum   --- on going 2025.07.23 - v00.05.01         #
+#   2. Released the final version    --- on going 2025.07.23 - v01.00.00         #
+#   3. Added Parameter Configuration --- 2025.07.24 - v01.01.00                  #
 #                                                                                #
 # _______________________________________________________________________________#
-
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, scrolledtext, messagebox, filedialog
 import serial
 import serial.tools.list_ports
 import random
@@ -43,17 +43,18 @@ import time
 import threading
 import binascii
 import crcmod.predefined # For CRC-8 and CRC-16
+import json # Import json for configuration saving/loading
 
 
 class SerialFuzzTool:
     def __init__(self, master):
         self.master = master
-        Fuzz_ver = "01.00.00"
-        Fuzz_yr = "2025.07.23"
+        Fuzz_ver = "01.01.00"
+        Fuzz_yr = "2025.07.24"
         master.title("FuzzBox" + " (v" + Fuzz_ver +")" + " - " + Fuzz_yr + " - nigel.zhai@ul.com")
         master.geometry("560x750+200+200") # Set initial window size
-        master.minsize(560, 750) # Set minimum window size
-        master.maxsize(560, 750) # Set maximum window size
+        master.minsize(600, 750) # Set minimum window size
+        master.maxsize(600, 750) # Set maximum window size
 
         self.ser = None # Serial port object
         self.fuzzing_active = False
@@ -124,18 +125,18 @@ class SerialFuzzTool:
         control_frame.grid(row=0, column=1, padx=5, pady=2, sticky="nsew")
 
         ttk.Label(control_frame, text="Interval (ms):").grid(row=0, column=0, padx=10, pady=2, sticky="w")
-        self.interval_entry = ttk.Entry(control_frame, width=8) # Adjusted width
+        self.interval_entry = ttk.Entry(control_frame, width=5) # Adjusted width
         self.interval_entry.insert(0, "10")
         vcmd_float = (self.master.register(self.validate_float), '%P')
         self.interval_entry.config(validate="key", validatecommand=vcmd_float)
-        self.interval_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=2, sticky="ew")
+        self.interval_entry.grid(row=0, column=1, columnspan=2, padx=5, pady=2, sticky="news")
 
         ttk.Label(control_frame, text="Loops (0=infinite):").grid(row=1, column=0, padx=10, pady=2, sticky="w")
-        self.iterations_entry = ttk.Entry(control_frame, width=8) # Adjusted width
+        self.iterations_entry = ttk.Entry(control_frame, width=5) # Adjusted width
         self.iterations_entry.insert(0, "0")
         vcmd_int = (self.master.register(self.validate_int), '%P')
         self.iterations_entry.config(validate="key", validatecommand=vcmd_int)
-        self.iterations_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=2, sticky="ew")
+        self.iterations_entry.grid(row=1, column=1, columnspan=2, padx=5, pady=2, sticky="news")
 
         # Define a style for the stop button
         style = ttk.Style()
@@ -149,7 +150,7 @@ class SerialFuzzTool:
         self.send_single_button.grid(row=2, column=0, padx=5, pady=2, sticky="wns") # Spans two columns
 
         self.start_fuzz_button = ttk.Button(control_frame, text="Go! Fuzzing", width=15, command=self.start_fuzzing, style="Green.TButton")
-        self.start_fuzz_button.grid(row=2, column=1, rowspan=2, columnspan=2, padx=5, pady=5, sticky="ns") # Spans two columns
+        self.start_fuzz_button.grid(row=2, column=1, rowspan=2, columnspan=2, padx=5, pady=5, sticky="news") # Spans two columns
         self.stop_fuzz_button = ttk.Button(control_frame, text="Stop!", width=15, command=self.stop_fuzzing, state=tk.DISABLED, style="Red.TButton")
         self.stop_fuzz_button.grid(row=3, column=0, columnspan=2, padx=5, pady=5, sticky="wns") # Spans two columns
 
@@ -160,38 +161,44 @@ class SerialFuzzTool:
         top_section_frame.grid_columnconfigure(1, weight=1)
 
 
-        # --- Middle Section Container Frame (Field Config and Checksum) ---
+        # --- Middle Section Container Frame (Field Config, Checksum, and Parameter Config) ---
         middle_section_frame = ttk.Frame(self.master)
         middle_section_frame.pack(padx=10, pady=2, fill="both", expand=True)
 
         # --- Field Configuration Frame ---
-        fields_frame = ttk.LabelFrame(middle_section_frame, text="Field Configuration (Up to 10 Fields)")
-        fields_frame.grid(row=0, column=0, padx=5, pady=2, sticky="nsew")
+        fields_frame = ttk.LabelFrame(middle_section_frame, width=25, text="Field Configuration")
+        fields_frame.grid(row=0, rowspan=2, column=0, padx=5, pady=2, sticky="nsew")
 
         self.field_types = []
         self.field_lengths = []
         self.field_checkboxes = []
+        self.fixed_value_stringvars = [] # New list for fixed value StringVars
+        self.fixed_value_entries = [] # New list for fixed value Entry widgets
 
         # Header row for fields
-        ttk.Label(fields_frame, text="Enable").grid(row=0, column=0, padx=2, pady=2)
-        ttk.Label(fields_frame, text="Field #").grid(row=0, column=1, padx=2, pady=2)
+        ttk.Label(fields_frame, text="Check").grid(row=0, column=0, padx=2, pady=2)
+        ttk.Label(fields_frame, text="Fields").grid(row=0, column=1, padx=2, pady=2)
         ttk.Label(fields_frame, text="Type").grid(row=0, column=2, padx=2, pady=2)
-        ttk.Label(fields_frame, text="Length (bytes)").grid(row=0, column=3, padx=2, pady=2)
+        ttk.Label(fields_frame, text="Length").grid(row=0, column=3, padx=2, pady=2)
+        ttk.Label(fields_frame, text="Fixed Value").grid(row=0, column=4, padx=2, pady=2) # New header
 
         for i in range(10):
             row_num = i + 1
-            var_disable = tk.BooleanVar(value=None)
             var_enable = tk.BooleanVar(value=True) # Default enabled
+            var_disable = tk.BooleanVar(value=False) # Default disabled
             chk = ttk.Checkbutton(fields_frame, variable=var_disable)
             chk.grid(row=row_num, column=0, padx=2, pady=2)
             self.field_checkboxes.append(var_disable)
 
             ttk.Label(fields_frame, text=f"Field {i+1}:").grid(row=row_num, column=1, padx=2, pady=2, sticky="w")
 
-            type_combo = ttk.Combobox(fields_frame, values=list(self.CHAR_RANGES.keys()), state="readonly", width=25) # Adjusted width
+            # Add "Fixed value" to the list of types
+            type_combo = ttk.Combobox(fields_frame, values=list(self.CHAR_RANGES.keys()) + ["Fixed value"], state="readonly", width=20) # Adjusted width
             type_combo.set("Random Hex (0x00-0xFF)")
             type_combo.grid(row=row_num, column=2, padx=2, pady=2, sticky="ew")
             self.field_types.append(type_combo)
+            type_combo.bind("<<ComboboxSelected>>", lambda event, idx=i: self._on_field_type_selected(event, idx))
+
 
             length_entry = ttk.Entry(fields_frame, width=5) # Adjusted width
             length_entry.insert(0, "1") # Default length 1
@@ -201,12 +208,24 @@ class SerialFuzzTool:
             length_entry.config(validate="key", validatecommand=vcmd)
             self.field_lengths.append(length_entry)
 
+            # New: Fixed Value Entry
+            fixed_val_sv = tk.StringVar()
+            fixed_val_entry = ttk.Entry(fields_frame, textvariable=fixed_val_sv, width=15) # Adjusted width
+            # Validate hex input for fixed value
+            vcmd_hex = (self.master.register(self.validate_hex_input), '%P', id)
+            fixed_val_entry.config(validate="key", validatecommand=vcmd_hex)
+            fixed_val_entry.grid(row=row_num, column=4, padx=2, pady=2, sticky="ew")
+            fixed_val_entry.grid_remove() # Initially hide it
+            self.fixed_value_stringvars.append(fixed_val_sv)
+            self.fixed_value_entries.append(fixed_val_entry)
+
         fields_frame.grid_columnconfigure(2, weight=1) # Allow type combobox to expand
+        fields_frame.grid_columnconfigure(4, weight=1) # Allow fixed value entry to expand
 
 
         # --- Last Field (Checksum) Configuration Frame ---
-        checksum_frame = ttk.LabelFrame(middle_section_frame, text="Last Field (Checksum/Empty)")
-        checksum_frame.grid(row=0, column=1, padx=5, pady=2, sticky="nsew")
+        checksum_frame = ttk.LabelFrame(middle_section_frame, text="Last Field (Checksum)")
+        checksum_frame.grid(row=0, column=1, padx=5, pady=2, sticky="news")
 
         self.checksum_mode = tk.StringVar(value="Empty") # Default to Empty
         ttk.Radiobutton(checksum_frame, text="Empty", variable=self.checksum_mode, value="Empty", command=self.toggle_checksum_options).grid(row=0, column=0, columnspan=2, padx=5, pady=2, sticky="w")
@@ -214,7 +233,7 @@ class SerialFuzzTool:
 
         ttk.Label(checksum_frame, text="Algorithm:").grid(row=2, column=0, padx=2, pady=2, sticky="w")
         # Updated values to include LRC
-        self.checksum_algo_combobox = ttk.Combobox(checksum_frame, values=["LRC", "CRC-8", "CRC-16"], state="readonly", width=10)
+        self.checksum_algo_combobox = ttk.Combobox(checksum_frame, values=["LRC", "CRC-8", "CRC-16"], state="readonly", width=9)
         self.checksum_algo_combobox.set("LRC") # Default to LRC
         self.checksum_algo_combobox.grid(row=2, column=1, padx=2, pady=2, sticky="w")
         self.checksum_algo_combobox.bind("<<ComboboxSelected>>", self.update_checksum_length_label)
@@ -225,9 +244,23 @@ class SerialFuzzTool:
 
         self.toggle_checksum_options() # Initialize state
 
-        # Configure middle_section_frame columns to expand
-        middle_section_frame.grid_columnconfigure(0, weight=1)
-        middle_section_frame.grid_columnconfigure(1, weight=1)
+
+
+        # --- New: Parameter Configuration Frame ---
+        param_config_frame = ttk.LabelFrame(middle_section_frame, text="Parameter Configuration")
+        # Positioned right of fields_frame (column 1) and below checksum_frame (row 1)
+        param_config_frame.grid(row=1, column=1, padx=5, pady=2, sticky="news")
+
+        ttk.Button(param_config_frame, text="Export Config", width=10, command=self.export_config).pack(side=tk.TOP, padx=5, pady=10, fill="x")
+        ttk.Button(param_config_frame, text="Import Config", width=10, command=self.import_config).pack(side=tk.TOP, padx=5, pady=10, fill="x")
+
+
+        # Configure middle_section_frame columns and rows to expand
+        middle_section_frame.grid_columnconfigure(0, weight=1) # fields_frame
+        middle_section_frame.grid_columnconfigure(1, weight=1) # checksum_frame and param_config_frame
+        middle_section_frame.grid_rowconfigure(0, weight=1) # Row for fields_frame and checksum_frame
+        middle_section_frame.grid_rowconfigure(1, weight=0) # Row for param_config_frame
+
 
         # --- Log Area ---
         log_frame = ttk.LabelFrame(self.master, text="Log Output")
@@ -268,6 +301,43 @@ class SerialFuzzTool:
             return value >= 0
         except ValueError:
             return False
+
+    def validate_hex_input(self, P, field_idx):
+        # Allow empty string for deletion
+        if P == "":
+            self.field_lengths[field_idx].config(state=tk.NORMAL) # Enable length entry
+            self.field_lengths[field_idx].delete(0, tk.END)
+            self.field_lengths[field_idx].insert(0, "")
+            self.field_lengths[field_idx].config(state=tk.DISABLED) # Disable it again
+            return True
+        
+        # Check if it's a valid hex string
+        if not all(c in '0123456789abcdefABCDEF' for c in P):
+            return False
+        
+        # Update length based on hex string
+        byte_length = len(P) // 2
+        self.field_lengths[field_idx].config(state=tk.NORMAL) # Temporarily enable to update
+        self.field_lengths[field_idx].delete(0, tk.END)
+        self.field_lengths[field_idx].insert(0, str(byte_length))
+        self.field_lengths[field_idx].config(state=tk.DISABLED) # Disable it again
+        
+        return True
+
+    def _on_field_type_selected(self, event, field_index):
+        selected_type = self.field_types[field_index].get()
+        if selected_type == "Fixed value":
+            self.fixed_value_entries[field_index].grid() # Show the fixed value entry
+            self.field_lengths[field_index].config(state=tk.DISABLED) # Disable length entry
+            # Trigger validation to update length based on current fixed value
+            self.validate_hex_input(self.fixed_value_stringvars[field_index].get(), field_index)
+        else:
+            self.fixed_value_entries[field_index].grid_remove() # Hide the fixed value entry
+            self.field_lengths[field_index].config(state=tk.NORMAL) # Enable length entry
+            # Reset length to 1 if it was a fixed value field and now changed
+            if not self.field_lengths[field_index].get(): # If it's empty
+                 self.field_lengths[field_index].insert(0, "1")
+
 
     def toggle_checksum_options(self):
         is_checksum = (self.checksum_mode.get() == "Checksum")
@@ -320,10 +390,10 @@ class SerialFuzzTool:
             self.log_message(f"Failed to connect: {e}")
         except ValueError as e:
             messagebox.showerror("Configuration Error", f"Invalid serial setting: {e}")
-            # self.log_message(f"Configuration error: {e}")
-        # except KeyError as e:
-            # messagebox.showerror("Configuration Error", f"Invalid parity or stop bits value: {e}")
             self.log_message(f"Configuration error: {e}")
+        except Exception as e:
+            messagebox.showerror("Error", f"An unexpected error occurred: {e}")
+            self.log_message(f"Unexpected error: {e}")
 
     def disconnect_serial(self):
         if self.ser and self.ser.is_open:
@@ -337,7 +407,18 @@ class SerialFuzzTool:
             self.stop_fuzz_button.config(state=tk.DISABLED)
             self.stop_fuzzing() # Ensure fuzzing thread stops
 
-    def generate_field_bytes(self, field_type, field_length):
+    def generate_field_bytes(self, field_type, field_length, fixed_value_hex=None):
+        if field_type == "Fixed value":
+            if not fixed_value_hex:
+                raise ValueError("Fixed value cannot be empty for 'Fixed value' type.")
+            try:
+                # Ensure fixed_value_hex has an even number of characters
+                if len(fixed_value_hex) % 2 != 0:
+                    raise ValueError("Fixed hex value must have an even number of characters.")
+                return binascii.unhexlify(fixed_value_hex)
+            except binascii.Error:
+                raise ValueError(f"Invalid hexadecimal string: {fixed_value_hex}")
+        
         if field_type not in self.CHAR_RANGES:
             raise ValueError(f"Unknown field type: {field_type}")
 
@@ -368,14 +449,26 @@ class SerialFuzzTool:
             if self.field_checkboxes[i].get(): # Check if field is enabled
                 try:
                     field_type = self.field_types[i].get()
-                    field_length = int(self.field_lengths[i].get())
-                    packet_data.extend(self.generate_field_bytes(field_type, field_length))
+                    field_length = int(self.field_lengths[i].get()) # This will be auto-updated for fixed value
+                    fixed_value_hex = self.fixed_value_stringvars[i].get() if field_type == "Fixed value" else None
+
+                    # If fixed value, use its actual byte length, not the user-entered one
+                    if field_type == "Fixed value":
+                        if not fixed_value_hex:
+                            messagebox.showerror("Input Error", f"Field {i+1} (Fixed value) cannot be empty.")
+                            return None
+                        # Length is derived from hex string, not user input
+                        actual_length = len(binascii.unhexlify(fixed_value_hex))
+                        if actual_length != field_length: # This should ideally not happen if validate_hex_input works
+                            self.log_message(f"Warning: Field {i+1} fixed value length mismatch. Using derived length {actual_length}.")
+                            field_length = actual_length
+
+                    packet_data.extend(self.generate_field_bytes(field_type, field_length, fixed_value_hex))
                 except ValueError as e:
                     messagebox.showerror("Input Error", f"Field {i+1} configuration error: {e}")
                     return None
             else:
-                # self.log_message(f"Field {i+1} is disabled.") # Nigel: too verbose for continuous fuzzing
-                pass
+                pass # Field is disabled
 
         # Handle last field (checksum or empty)
         if self.checksum_mode.get() == "Checksum":
@@ -387,8 +480,7 @@ class SerialFuzzTool:
                 messagebox.showerror("Checksum Error", f"Checksum calculation error: {e}")
                 return None
         else:
-            # self.log_message("Last field is empty (no checksum).") # Nigle: too verbose
-            pass
+            pass # Last field is empty (no checksum).
 
         return bytes(packet_data)
 
@@ -420,13 +512,35 @@ class SerialFuzzTool:
     def fuzz_loop(self, iterations, interval):
         count = 0
         while self.fuzzing_active and (iterations == 0 or count < iterations):
-            self.send_single_packet()
+            packet = self.generate_packet() # Regenerate packet for each iteration
+            if packet is None:
+                self.log_message("Fuzzing stopped due to packet generation error.")
+                self.fuzzing_active = False
+                break # Exit loop if packet generation fails
+
+            try:
+                self.ser.write(packet)
+                self.log_message(f"SENT ({count+1}/{iterations if iterations != 0 else 'Inf'}): {binascii.hexlify(packet).decode('utf-8').upper()}")
+
+                # Try to read response
+                response = self.ser.read_all()
+                if response:
+                    self.log_message(f"RECV: {binascii.hexlify(response).decode('utf-8').upper()}")
+            except serial.SerialException as e:
+                messagebox.showerror("Serial Error", f"Error sending data during fuzzing: {e}")
+                self.log_message(f"Fuzzing send error: {e}")
+                self.fuzzing_active = False # Stop fuzzing on serial error
+                self.disconnect_serial() # Disconnect on error
+                break # Exit loop
+            except Exception as e:
+                messagebox.showerror("Error", f"An unexpected error occurred during fuzzing: {e}")
+                self.log_message(f"Fuzzing unexpected error: {e}")
+                self.fuzzing_active = False # Stop fuzzing on unexpected error
+                break # Exit loop
+
             count += 1
-            if iterations != 0:
-                self.log_message(f"Fuzzing iteration: {count}/{iterations}")
-            else:
-                self.log_message(f"Fuzzing iteration: {count} (infinite)")
             time.sleep(interval/1000) # Interval is in milliseconds, convert to seconds
+        
         self.fuzzing_active = False # Ensure state is reset if loop finishes
         self.master.after(0, self.update_fuzzing_buttons) # Update GUI from main thread
 
@@ -474,7 +588,6 @@ class SerialFuzzTool:
         else:
             self.start_fuzz_button.config(state=tk.NORMAL)
             self.stop_fuzz_button.config(state=tk.DISABLED)
-			# self.send_single_button.config(state=tk.NORMAL)
             # Re-enable if connected
             if self.ser and self.ser.is_open:
                 self.send_single_button.config(state=tk.NORMAL)
@@ -482,6 +595,118 @@ class SerialFuzzTool:
             else:
                 self.send_single_button.config(state=tk.DISABLED)
                 self.start_fuzz_button.config(state=tk.DISABLED)
+
+    def export_config(self):
+        config = {
+            "serial_port": {
+                "port": self.port_combobox.get(),
+                "baudrate": self.baudrate_combobox.get(),
+                "databits": self.databits_combobox.get(),
+                "parity": self.parity_combobox.get(),
+                "stopbits": self.stopbits_combobox.get()
+            },
+            "fuzzing_controls": {
+                "interval": self.interval_entry.get(),
+                "iterations": self.iterations_entry.get()
+            },
+            "field_configurations": [],
+            "checksum_config": {
+                "mode": self.checksum_mode.get(),
+                "algorithm": self.checksum_algo_combobox.get()
+            }
+        }
+
+        for i in range(10):
+            field_type = self.field_types[i].get()
+            field_config_data = {
+                "enabled": self.field_checkboxes[i].get(),
+                "type": field_type,
+                "length": self.field_lengths[i].get() # This will be the auto-updated length for fixed value
+            }
+            if field_type == "Fixed value":
+                field_config_data["fixed_value"] = self.fixed_value_stringvars[i].get()
+            config["field_configurations"].append(field_config_data)
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Export Configuration"
+        )
+        if file_path:
+            try:
+                with open(file_path, 'w') as f:
+                    json.dump(config, f, indent=4)
+                messagebox.showinfo("Export Config", f"Configuration exported successfully to {file_path}")
+                self.log_message(f"Configuration exported to {file_path}")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export configuration: {e}")
+                self.log_message(f"Failed to export configuration: {e}")
+
+    def import_config(self):
+        file_path = filedialog.askopenfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Import Configuration"
+        )
+        if file_path:
+            try:
+                with open(file_path, 'r') as f:
+                    config = json.load(f)
+
+                # Set Serial Port Configuration
+                self.port_combobox.set(config["serial_port"]["port"])
+                self.baudrate_combobox.set(config["serial_port"]["baudrate"])
+                self.databits_combobox.set(config["serial_port"]["databits"])
+                self.parity_combobox.set(config["serial_port"]["parity"])
+                self.stopbits_combobox.set(config["serial_port"]["stopbits"])
+
+                # Set Fuzzing Controls
+                self.interval_entry.delete(0, tk.END)
+                self.interval_entry.insert(0, config["fuzzing_controls"]["interval"])
+                self.iterations_entry.delete(0, tk.END)
+                self.iterations_entry.insert(0, config["fuzzing_controls"]["iterations"])
+
+                # Set Field Configurations
+                for i, field_config in enumerate(config["field_configurations"]):
+                    if i < 10: # Ensure we don't go out of bounds
+                        self.field_checkboxes[i].set(field_config["enabled"])
+                        self.field_types[i].set(field_config["type"])
+                        
+                        # Handle fixed value specific logic
+                        if field_config["type"] == "Fixed value":
+                            self.fixed_value_stringvars[i].set(field_config.get("fixed_value", ""))
+                            self.fixed_value_entries[i].grid() # Show the entry
+                            self.field_lengths[i].config(state=tk.DISABLED) # Disable length entry
+                            # Trigger validation to update length based on imported fixed value
+                            self.validate_hex_input(self.fixed_value_stringvars[i].get(), i)
+                        else:
+                            self.fixed_value_entries[i].grid_remove() # Hide the entry
+                            self.fixed_value_stringvars[i].set("") # Clear fixed value
+                            self.field_lengths[i].config(state=tk.NORMAL) # Enable length entry
+                            self.field_lengths[i].delete(0, tk.END)
+                            self.field_lengths[i].insert(0, field_config["length"])
+
+
+                # Set Checksum Config
+                self.checksum_mode.set(config["checksum_config"]["mode"])
+                self.checksum_algo_combobox.set(config["checksum_config"]["algorithm"])
+                self.toggle_checksum_options() # Update display based on new mode/algo
+
+                messagebox.showinfo("Import Config", f"Configuration imported successfully from {file_path}")
+                self.log_message(f"Configuration imported from {file_path}")
+            except FileNotFoundError:
+                messagebox.showerror("Import Error", "Selected file not found.")
+                self.log_message("Import error: Selected file not found.")
+            except json.JSONDecodeError:
+                messagebox.showerror("Import Error", "Invalid JSON format in selected file.")
+                self.log_message("Import error: Invalid JSON format.")
+            except KeyError as e:
+                messagebox.showerror("Import Error", f"Missing key in configuration file: {e}. Please ensure the file is valid.")
+                self.log_message(f"Import error: Missing key {e} in configuration file.")
+            except Exception as e:
+                messagebox.showerror("Import Error", f"Failed to import configuration: {e}")
+                self.log_message(f"Failed to import configuration: {e}")
+
 
 # --- Main Application ---
 if __name__ == "__main__":

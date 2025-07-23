@@ -1,0 +1,69 @@
+{
+    "serial_port": {
+        "port": "COM12",
+        "baudrate": "115200",
+        "databits": "8",
+        "parity": "N",
+        "stopbits": "1"
+    },
+    "fuzzing_controls": {
+        "interval": "10",
+        "iterations": "0"
+    },
+    "field_configurations": [
+        {
+            "enabled": true,
+            "type": "Numbers (0-9)",
+            "length": "1"
+        },
+        {
+            "enabled": true,
+            "type": "Symbols (!-/ :@)",
+            "length": "1"
+        },
+        {
+            "enabled": true,
+            "type": "Invisible Chars (0x00-0x20)",
+            "length": "1"
+        },
+        {
+            "enabled": false,
+            "type": "Random Hex (0x00-0xFF)",
+            "length": "1"
+        },
+        {
+            "enabled": false,
+            "type": "Random Hex (0x00-0xFF)",
+            "length": "1"
+        },
+        {
+            "enabled": false,
+            "type": "Random Hex (0x00-0xFF)",
+            "length": "1"
+        },
+        {
+            "enabled": false,
+            "type": "Random Hex (0x00-0xFF)",
+            "length": "1"
+        },
+        {
+            "enabled": false,
+            "type": "Random Hex (0x00-0xFF)",
+            "length": "1"
+        },
+        {
+            "enabled": false,
+            "type": "Random Hex (0x00-0xFF)",
+            "length": "1"
+        },
+        {
+            "enabled": false,
+            "type": "Random Hex (0x00-0xFF)",
+            "length": "1"
+        }
+    ],
+    "checksum_config": {
+        "mode": "Empty",
+        "algorithm": "LRC"
+    }
+}
