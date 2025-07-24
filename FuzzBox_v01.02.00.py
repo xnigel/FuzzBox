@@ -53,7 +53,7 @@ class SerialFuzzTool:
         Fuzz_ver = "01.02.00"
         Fuzz_yr = "2025.07.24"
         master.title("FuzzBox" + " (v" + Fuzz_ver +")" + " - " + Fuzz_yr + " - nigel.zhai@ul.com")
-        master.geometry("560x750+1160+50") # Set initial window size
+        master.geometry("600x750+50+50") # Set initial window size
         master.minsize(600, 750) # Set minimum window size
         master.maxsize(600, 750) # Set maximum window size
 
