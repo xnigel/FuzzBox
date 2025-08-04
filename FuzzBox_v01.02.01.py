@@ -63,6 +63,9 @@ class SerialFuzzTool:
         master.minsize(600, 750) # Set minimum window size
         master.maxsize(600, 750) # Set maximum window size
 
+        # Set the window icon
+        self.set_window_icon()
+
         self.ser = None # Serial port object
         self.fuzzing_active = False
         self.fuzz_thread = None
@@ -278,15 +281,28 @@ class SerialFuzzTool:
 
     def set_window_icon(self):
         try:
+            # Decode the Base64 string
             icon_data = base64.b64decode(ICON_PNG_BASE64)
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-                f.write(icon_data)
-                icon_path = f.name
-            photo = tk.PhotoImage(file=icon_path)
-            self.master.iconphoto(True, photo)
-            os.remove(icon_path)
+
+            # Attempt to use PhotoImage directly
+            try:
+                photo_image = tk.PhotoImage(data=icon_data)
+                self.master.iconphoto(True, photo_image)
+            except tk.TclError:
+                # Fallback to .ico if PhotoImage fails (e.g., if the data isn't a valid PNG or Tkinter version issues)
+                # This requires writing to a temporary .ico file.
+                print("PhotoImage failed, attempting .ico fallback...")
+                temp_ico_path = os.path.join(tempfile.gettempdir(), "temp_icon.ico")
+                with open(temp_ico_path, "wb") as f:
+                    f.write(icon_data) # Assuming the base64 could also be an ICO
+                self.master.iconbitmap(temp_ico_path)
+                os.remove(temp_ico_path) # Clean up the temporary file
+
         except Exception as e:
-            self.log_message(f"Error setting icon: \n{e}", "error")
+            print(f"Error setting PNG icon from Base64 or ICO fallback: \n{e}")
+            print("Ensure the Base64 string is correct and represents a valid PNG or ICO image.")
+            # Fallback to a default Tkinter icon if all else fails
+            self.master.iconbitmap(default="::tk::icons::question")
 
     def refresh_ports(self):
         ports = serial.tools.list_ports.comports()
