@@ -33,7 +33,7 @@
 #   2. Released the final version    --- on going 2025.07.23 - v01.00.00         #
 #   3. Added Parameter Configuration --- 2025.07.24 - v01.01.00                  #
 #   4. Fixed "Fixed Value" entry issue - 2025.07.24 - v01.02.00                  #
-#   5. Embedded icon into single file  - 2025.08.04 - v01.02.01
+#   5. Embedded icon into single file  - 2025.08.04 - v01.02.01                  #
 #                                                                                #
 # _______________________________________________________________________________#
 import tkinter as tk
